@@ -14,7 +14,7 @@ pip install automate-supervised-dataset-generation
 
 ## Start the app
 ```
-import automate_supervised_dataset_generation.automate
+import automate_unsupervised_dataset_generation.automate
 query = "Artificial Intelligence"
 num_page = 5
 sleep_time = 10
@@ -24,4 +24,4 @@ results = automate_supervised_dataset_generation.automate.parallel_scraping(quer
 
 ## License
 
-`automate-unsupervised-dataset-generation` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
+`automate-supervised-dataset-generation` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
