@@ -1,3 +1,16 @@
+
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+import inspect
+from inspect import getargspec
+
+import numpy as np
+import sklearn
+import hyperopt
+
+# print(f"NumPy version: {np.__version__}")
+# print(f"scikit-learn version: {sklearn.__version__}")
+# print(f"hyperopt version: {hyperopt.__version__}")
 import time
 import multiprocessing 
 from mpire import WorkerPool
@@ -5,7 +18,123 @@ from playwright.sync_api import sync_playwright
 from pprint import pprint
 from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
 import torch
+from sklearn.model_selection import train_test_split
 
+from hpsklearn import HyperoptEstimator, any_classifier, svc, svc_linear, svc_rbf, svc_poly, svc_sigmoid, liblinear_svc
+from hpsklearn import knn, ada_boost, gradient_boosting,random_forest,extra_trees,decision_tree,sgd,xgboost_classification
+from hpsklearn import multinomial_nb,gaussian_nb,passive_aggressive,linear_discriminant_analysis,quadratic_discriminant_analysis
+from hpsklearn import rbm,colkmeans,one_vs_rest,one_vs_one,output_code
+from hyperopt import tpe
+import numpy as np
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from transformers import BertTokenizer, BertModel
+import torch
+
+from sklearn.model_selection import train_test_split
+from hyperopt import tpe
+from hpsklearn import HyperoptEstimator, ada_boost, extra_trees, gaussian_nb, decision_tree
+from hpsklearn import quadratic_discriminant_analysis, passive_aggressive, sgd, svc_linear, svc
+from hpsklearn import xgboost_classification, gradient_boosting, random_forest, knn, linear_discriminant_analysis
+
+
+def preprocess_texts(texts):
+    # Load pre-trained BERT model and tokenizer
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    model = BertModel.from_pretrained('bert-base-uncased')
+
+    # Sample list of text
+    # texts = ["I love programming", "Python is awesome", "I love coding in Python"]
+
+    # Tokenize and get embeddings
+    inputs = tokenizer(texts, return_tensors='pt', padding=True, truncation=True)
+
+    # Get the hidden states from BERT (this is a representation of the text)
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    # The embeddings of the [CLS] token, which is a good representation of the sentence
+    sentence_embeddings = outputs.last_hidden_state[:, 0, :]
+
+    # Convert to numpy array
+    sentence_embeddings_np = sentence_embeddings.numpy()
+
+    # Check the result
+    return sentence_embeddings_np
+
+def train_models(name,classifier,X_train, X_test, y_train, y_test,max_evals=10,trial_timeout=120):
+    # Initialize HyperoptEstimator with the classifier
+    try:
+        estim = HyperoptEstimator(
+            classifier=classifier(name),
+            algo=tpe.suggest,
+            max_evals=max_evals,
+            trial_timeout=trial_timeout
+        )
+
+        estim.fit(X_train, y_train)
+
+        # Collect results
+        my_dict = {
+            "best_model": estim.best_model(),
+            "best_score": estim.score(X_test, y_test)
+        }
+        return my_dict
+    except Exception as e:
+        return {
+            "error":str(e)
+        }
+def apply_ml_example(labelled_dataset,test_size=0.2,max_evals=10,trial_timeout=120):
+    
+    available_classifier_dict = {
+        'AdaBoostClassifier': ada_boost,
+        'ExtraTreeClassifier': extra_trees,
+        'GaussianNB': gaussian_nb,
+    }
+
+    # Extract texts and labels, convert labels to strings
+    texts = [labelled_data['texts'][0] for labelled_data in labelled_dataset]
+    labels_str = [labelled_data['labels'][0] for labelled_data in labelled_dataset]  # Convert labels to strings
+    
+    labels_str = list(set(labels_str))
+    # print(labels_str)
+    mapping = {}
+    for i in range(len(labels_str)):
+        mapping[labels_str[i]] = i
+    # print(mapping)
+    labels = [mapping[labelled_data['labels'][0]] for labelled_data in labelled_dataset]  #
+    # print(labels)
+    # Preprocess texts
+    X = preprocess_texts(texts)
+
+    # print(X)
+    X_train, X_test, y_train, y_test = train_test_split(X, labels, test_size=test_size)
+
+    results = []
+    meta_task = []
+    for i, (name, classifier) in enumerate(list(available_classifier_dict.items())):
+        my_dict = {}
+        my_dict["name"] = name
+        my_dict["classifier"] = classifier
+        my_dict["X_train"] = X_train
+        my_dict["X_test"] = X_test
+        my_dict["y_train"] = y_train
+        my_dict["y_test"] = y_test
+        
+        meta_task.append(my_dict)
+
+    # num_cores = multiprocessing.cpu_count()-1
+    for my_dict in meta_task:
+        name,classifier=my_dict["name"],my_dict["classifier"]
+        results.append(train_models(name,classifier,X_train, X_test, y_train, y_test,max_evals,trial_timeout))
+        
+    # with WorkerPool(n_jobs=num_cores) as pool:
+        # results = pool.map(train_models, meta_task, progress_bar=True, chunk_size=1)
+    
+    
+    
+            
+    return {"labelled_dataset": labelled_dataset, "results": results}
 
 def extract_text_from_url(url,sleep_time):
     time.sleep(2)
@@ -214,13 +343,11 @@ def tag_dataset(texts,model,tokenizer,labels):
     predicted_labels = [labels[idx] for idx in predicted_indices]
 
     # print(predicted_labels)  # Example output: ['Spam', 'Promotional', 'Not Spam']
-    return {"texts":texts,"predicted_labels":predicted_labels}
+    return {"texts":texts,"labels":predicted_labels}
 
 
-def parallel_scraping(query,num_page,labels,sleep_time=10):
-    sleep_time*=1000
-    
-    time.sleep(2)
+def parallel_scraping(query,num_page,labels,sleep_time=2,test_size=0.2,max_evals=10,trial_timeout=120):
+    sleep_time *= 1000
     # init_browser_pool()
     total_pages = find_number_of_google_pages(query,sleep_time)
     
@@ -272,17 +399,6 @@ def parallel_scraping(query,num_page,labels,sleep_time=10):
     
     with WorkerPool(n_jobs=num_cores) as pool:
         labelled_dataset = pool.map(tag_dataset, descriptions, progress_bar=True, chunk_size=1)
-    
-    return labelled_dataset
+    # print(labelled_dataset)
+    return apply_ml_example(labelled_dataset,test_size=test_size,max_evals=max_evals,trial_timeout=trial_timeout)
 
-
-# if __name__ == "__main__":
-#     query = "Artificial Intelligence"
-#     num_page = 1
-#     labels = ["Not Spam","Spam"]
-#     sleep_time = 10
-#     rv = parallel_scraping(query,num_page,labels,sleep_time)
-#     pprint(rv)
-
-    
-    
