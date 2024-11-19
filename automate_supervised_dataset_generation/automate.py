@@ -8,9 +8,6 @@ import numpy as np
 import sklearn
 import hyperopt
 
-# print(f"NumPy version: {np.__version__}")
-# print(f"scikit-learn version: {sklearn.__version__}")
-# print(f"hyperopt version: {hyperopt.__version__}")
 import time
 import multiprocessing 
 from mpire import WorkerPool
@@ -36,7 +33,7 @@ from hyperopt import tpe
 from hpsklearn import HyperoptEstimator, ada_boost, extra_trees, gaussian_nb, decision_tree
 from hpsklearn import quadratic_discriminant_analysis, passive_aggressive, sgd, svc_linear, svc
 from hpsklearn import xgboost_classification, gradient_boosting, random_forest, knn, linear_discriminant_analysis
-
+import languagemodels as lm
 
 def preprocess_texts(texts):
     # Load pre-trained BERT model and tokenizer
@@ -322,31 +319,37 @@ def get_description_from_url(url: str,sleep_time):
     
     return ""
 
-def tag_dataset(texts,model,tokenizer,labels):
+def tag_dataset(texts,model,tokenizer,labels,inference_size):
     num_labels = len(labels)
     inputs = tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
 
-    # Perform inference
-    with torch.no_grad():
-        outputs = model(**inputs)
+    # # Perform inference
+    # with torch.no_grad():
+    #     outputs = model(**inputs)
 
-    # Extract logits (raw scores)
-    logits = outputs.logits
+    # # Extract logits (raw scores)
+    # logits = outputs.logits
 
-    # Convert logits to probabilities using softmax
-    probabilities = torch.nn.functional.softmax(logits, dim=-1)
+    # # Convert logits to probabilities using softmax
+    # probabilities = torch.nn.functional.softmax(logits, dim=-1)
 
-    # Get predicted class indices
-    predicted_indices = torch.argmax(probabilities, dim=1)
+    # # Get predicted class indices
+    # predicted_indices = torch.argmax(probabilities, dim=1)
 
-    # Map indices back to custom labels
-    predicted_labels = [labels[idx] for idx in predicted_indices]
-
+    # # Map indices back to custom labels
+    orr = ""
+    for i,label in enumerate(labels):
+        if i!=len(labels)-1:
+            orr+=label+" or "
+    prompt = [f"Classify {orr}: {texts}. Classification:"]
+    lm.config["max_ram"] = inference_size
+    # predicted_labels = [labels[idx] for idx in predicted_indices]
+    predicted_labels = lm.rank_instruct(prompt,labels)[0][0]
     # print(predicted_labels)  # Example output: ['Spam', 'Promotional', 'Not Spam']
     return {"texts":texts,"labels":predicted_labels}
 
 
-def parallel_scraping(query,num_page,labels,sleep_time=2,test_size=0.2,max_evals=10,trial_timeout=120):
+def parallel_scraping(query,num_page,labels,sleep_time=2,test_size=0.2,max_evals=10,trial_timeout=120,inference_size="2gb"):
     sleep_time *= 1000
     # init_browser_pool()
     total_pages = find_number_of_google_pages(query,sleep_time)
@@ -391,14 +394,23 @@ def parallel_scraping(query,num_page,labels,sleep_time=2,test_size=0.2,max_evals
     num_labels = len(labels)  # Example for custom labels: Spam, Not Spam, Promotional
 
     # Load tokenizer and model
-    # Load tokenizer and model
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=num_labels)  # Adjust num_labels
-    descriptions = [{"texts":[descriptions[i]],"model":model,"tokenizer":tokenizer,"labels":labels} for i in range(len(descriptions)) if descriptions[i]!=""]
+    descriptions = [{"texts":[descriptions[i]],"model":model,"tokenizer":tokenizer,"labels":labels,"inference_size":inference_size} for i in range(len(descriptions)) if descriptions[i]!=""]
     # pprint(descriptions)
     
     with WorkerPool(n_jobs=num_cores) as pool:
         labelled_dataset = pool.map(tag_dataset, descriptions, progress_bar=True, chunk_size=1)
     # print(labelled_dataset)
-    return apply_ml_example(labelled_dataset,test_size=test_size,max_evals=max_evals,trial_timeout=trial_timeout)
+    return apply_ml_example(labelled_dataset,test_size=test_size,max_evals=max_evals,trial_timeout=trial_timeout,inference_size=inference_size)
 
+# if __name__=="__main__":
+#     query = "Artificial Intelligence"
+#     num_page = 1
+#     sleep_time = 10
+#     labels = ["spam","not Spam"]
+#     inference_size = "2gb"
+    
+    
+#     results = parallel_scraping(query,num_page,labels,sleep_time,inference_size)
+#     print(results)
