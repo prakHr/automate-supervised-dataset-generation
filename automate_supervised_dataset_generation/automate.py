@@ -1,4 +1,3 @@
-
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
 import inspect
@@ -402,15 +401,15 @@ def parallel_scraping(query,num_page,labels,sleep_time=2,test_size=0.2,max_evals
     with WorkerPool(n_jobs=num_cores) as pool:
         labelled_dataset = pool.map(tag_dataset, descriptions, progress_bar=True, chunk_size=1)
     # print(labelled_dataset)
-    return apply_ml_example(labelled_dataset,test_size=test_size,max_evals=max_evals,trial_timeout=trial_timeout,inference_size=inference_size)
+    return apply_ml_example(labelled_dataset,test_size=test_size,max_evals=max_evals,trial_timeout=trial_timeout)
 
 # if __name__=="__main__":
 #     query = "Artificial Intelligence"
 #     num_page = 1
-#     sleep_time = 10
+#     sleep_time = 2
 #     labels = ["spam","not Spam"]
 #     inference_size = "2gb"
     
     
 #     results = parallel_scraping(query,num_page,labels,sleep_time,inference_size)
-#     print(results)
+#     # print(results)
