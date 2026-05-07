@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="automate_supervised_dataset_generation",                   # Package name
-    version="0.8.0",                     # Version number
+    version="1.0.0",                     # Version number
     author="Prakhar Gandhi",                  # Author's name
     author_email="gprakhar0@gmail.com",  # Author's email
     description="A brief description",   # Short description
